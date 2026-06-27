@@ -1,0 +1,20 @@
+{
+  "locks": [
+    {
+      "locator": "github.com/ponylang/ssl.git",
+      "revision": "2.0.1"
+    },
+    {
+      "locator": "github.com/ponylang/postgres.git",
+      "revision": "0.6.1"
+    },
+    {
+      "locator": "github.com/ponylang/lori.git",
+      "revision": "0.15.1"
+    },
+    {
+      "locator": "github.com/ponylang/logger.git",
+      "revision": "1.0.1"
+    }
+  ]
+}
