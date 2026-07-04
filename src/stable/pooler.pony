@@ -1,5 +1,7 @@
 use "collections"
+use "logger"
 use "lori"
+use "itertools"
 
 interface _PoolWaitable
   be on_backend_acquired(backend: _StableClientConnection)
@@ -8,32 +10,31 @@ actor _StableConnectionPooler
   embed _idle: Array[_StableClientConnection tag] = _idle.create()
   embed _waiters: List[_PoolWaitable tag] = _waiters.create()
   var _auth: TCPConnectAuth
-  var _host: String
-  var _port: String
-  var _username: String
-  var _password: String
-  var _pool_size: U32
-  var _total_pool_size: U32 = 0
-  var _out: OutStream
+  var _backend_info: _StableBackendInfo val
+  var _pool_size: USize
+  var _current_pool_size: USize = 0
+  let _log: Logger[String]
 
-  new create(auth: TCPConnectAuth, host: String, port: String, username: String, password: String, pool_size: U32, out: OutStream) =>
+  new create(auth: TCPConnectAuth, backend_info: _StableBackendInfo val, pool_size: USize, log: Logger[String]) =>
     _auth = auth
-    _host = host
-    _port = port
-    _username = username
-    _password = password
+    _backend_info = backend_info
     _pool_size = pool_size
-    _out = out
+    _log = log
+
+    for _ in Iter[USize](Range(0, pool_size)) do
+      _spawn_connection()
+    end
 
   be acquire(client: _PoolWaitable tag) =>
     try
       let backend = _idle.pop()?
       client.on_backend_acquired(backend)
     else
-      if _total_pool_size < _pool_size then
-        _spawn_connection(client)
-      else
-        _waiters.push(client)
+      // Always queue the client — a freshly spawned backend releases itself
+      // into the pool once its startup completes, which serves the queue.
+      _waiters.push(client)
+      if _current_pool_size < _pool_size then
+        _spawn_connection()
       end
     end
 
@@ -45,6 +46,18 @@ actor _StableConnectionPooler
       _idle.push(backend)
     end
 
-  fun ref _spawn_connection(client: _PoolWaitable tag) =>
-    _total_pool_size = _total_pool_size + 1
+  be retire(backend: _StableClientConnection tag) =>
+    """
+    A backend connection died. Drop it from pool accounting so the pool
+    doesn't drain permanently. Respawn only when clients are waiting —
+    respawning unconditionally would hot-loop while the database is down.
+    """
+    _current_pool_size = _current_pool_size - 1
+    try _idle.delete(_idle.find(backend)?)? end
+    if (_waiters.size() > 0) and (_current_pool_size < _pool_size) then
+      _spawn_connection()
+    end
 
+  fun ref _spawn_connection() =>
+    _current_pool_size = _current_pool_size + 1
+    _StableClientConnection(_auth, _backend_info, this, _log).start()

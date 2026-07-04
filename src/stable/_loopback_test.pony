@@ -1,15 +1,6 @@
 use "pony_test"
 use "lori"
 
-class val _LoopbackTestNotifier is _StableConnectionNotifier
-  let _h: TestHelper
-
-  new create(h: TestHelper) =>
-    _h = h
-
-  fun box startup_complete() =>
-    _h.complete(true)
-
 class iso _LoopbackHandshake is UnitTest
   """
   Scaffold: bind a StableServer on loopback and point a _StableClientConnection
@@ -38,8 +29,8 @@ class iso _LoopbackHandshake is UnitTest
     let port: String = "17669"
 
 
-    let pool = _StableConnectionPooler(
-      TCPConnectAuth(auth), host, port, "test", "test", 1, h.env.out)
+    //let pool = _StableConnectionPooler(
+     // TCPConnectAuth(auth), host, port, "test", "test", 1, h.env.out)
 
     let server_info = _StableServerInfo(host, port)
 
