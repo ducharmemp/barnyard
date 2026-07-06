@@ -1,4 +1,4 @@
-# Stable! A connection pooler for your Postgres!
+# Barnyard! A connection pooler for your Postgres!
 
 ## Note
 This is learning software. Don't use this right now (maybe ever). Not only is this meant for learning purposes but also it's not meant to compete right now with any actually mature connection pooler. I just think actors are neat.

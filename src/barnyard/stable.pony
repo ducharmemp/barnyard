@@ -1,7 +1,7 @@
 use "logger"
 use "lori"
 
-primitive Stable
+primitive Barnyard
   fun apply(env: Env) =>
     // Info: one-shot lifecycle messages only. Flip to Fine to trace
     // per-connection and per-query activity.
@@ -9,8 +9,8 @@ primitive Stable
 
     var port: String = "7669"
     var pool_size: USize = 64
-    let port_key = "STABLE_PORT="
-    let pool_key = "STABLE_POOL="
+    let port_key = "BARNYARD_PORT="
+    let pool_key = "BARNYARD_POOL="
     for v in env.vars.values() do
       if v.at(port_key) then
         port = v.substring(port_key.size().isize())
@@ -19,5 +19,5 @@ primitive Stable
       end
     end
 
-    let pool = _StableConnectionPooler(TCPConnectAuth(env.root), recover val _StableBackendInfo("", "5432", "postgres", "postgres", "postgres") end, pool_size, log)
-    StableServer(TCPListenAuth(env.root), recover val _StableServerInfo("", port) end, pool, log)
+    let pool = _BarnyardConnectionPooler(TCPConnectAuth(env.root), recover val _BarnyardBackendInfo("", "5432", "postgres", "postgres", "postgres") end, pool_size, log)
+    BarnyardServer(TCPListenAuth(env.root), recover val _BarnyardServerInfo("", port) end, pool, log)

@@ -2,14 +2,14 @@ use "collections"
 use "logger"
 use "lori"
 
-actor StableServer is TCPListenerActor
+actor BarnyardServer is TCPListenerActor
   var _tcp_listener: TCPListener = TCPListener.none()
   let _log: Logger[String]
   let _server_auth: TCPServerAuth
-  let _server_info: _StableServerInfo val
-  let _pool: _StableConnectionPooler
+  let _server_info: _BarnyardServerInfo val
+  let _pool: _BarnyardConnectionPooler
 
-  new create(listen_auth: TCPListenAuth, server_info: _StableServerInfo val, pool: _StableConnectionPooler, log: Logger[String]) =>
+  new create(listen_auth: TCPListenAuth, server_info: _BarnyardServerInfo val, pool: _BarnyardConnectionPooler, log: Logger[String]) =>
     _log = log
     _server_auth = TCPServerAuth(listen_auth)
     _server_info = server_info
@@ -17,31 +17,31 @@ actor StableServer is TCPListenerActor
     _tcp_listener = TCPListener(listen_auth, _server_info.host, _server_info.port, this)
 
   fun ref _listener(): TCPListener => _tcp_listener
-  fun ref _on_accept(fd: U32): _StableServerConnection =>
-    _StableServerConnection(_server_auth, fd, _server_info, _pool, _log)
+  fun ref _on_accept(fd: U32): _BarnyardServerConnection =>
+    _BarnyardServerConnection(_server_auth, fd, _server_info, _pool, _log)
 
   fun ref _on_listening() =>
-    _log(Info) and _log.log("Stable listening on port " + _server_info.port)
+    _log(Info) and _log.log("Barnyard listening on port " + _server_info.port)
 
   fun ref _on_listen_failure() =>
-    _log(Error) and _log.log("Couldn't start Stable; is port " + _server_info.port + " in use?")
+    _log(Error) and _log.log("Couldn't start Barnyard; is port " + _server_info.port + " in use?")
 
-actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventReceiver & _StableConnection & _PoolWaitable)
+actor _BarnyardServerConnection is (TCPConnectionActor & ServerLifecycleEventReceiver & _BarnyardConnection & _PoolWaitable)
   var _tcp_connection: TCPConnection = TCPConnection.none()
-  let _server_info: _StableServerInfo val
+  let _server_info: _BarnyardServerInfo val
   let _log: Logger[String]
-  var _state: _StableConnectionState box
+  var _state: _BarnyardConnectionState box
   let _params: Map[String, String] = _params.create()
   var _startup_complete: Bool = false
-  let _pool: _StableConnectionPooler
-  var _peer: (_StableClientConnection | None) = None
+  let _pool: _BarnyardConnectionPooler
+  var _peer: (_BarnyardClientConnection | None) = None
   var _staged: Array[ByteSeq] iso = recover iso Array[ByteSeq] end
   var _staged_bytes: USize = 0
 
-  new create(auth: TCPServerAuth, fd: U32, server_info: _StableServerInfo val, pool: _StableConnectionPooler, log': Logger[String]) =>
+  new create(auth: TCPServerAuth, fd: U32, server_info: _BarnyardServerInfo val, pool: _BarnyardConnectionPooler, log': Logger[String]) =>
     _log = log'
     _server_info = server_info
-    _state = _StableServerAwaitLength
+    _state = _BarnyardServerAwaitLength
     _pool = pool
     _tcp_connection = TCPConnection.server(auth, fd, this, this)
     match MakeBufferSize(4)
@@ -80,7 +80,7 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
 
   fun ref pipe_send(data: (ByteSeq | ByteSeqIter)) =>
     match _peer
-    | let p: _StableClientConnection => p.pipe_receive(data)
+    | let p: _BarnyardClientConnection => p.pipe_receive(data)
     end
 
   fun ref stage(data: ByteSeq val) =>
@@ -107,7 +107,7 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
 
   be pipe_receive(data: (ByteSeq | ByteSeqIter)) =>
     match _state
-    | let rs: _StableConnectionReaderState box =>
+    | let rs: _BarnyardConnectionReaderState box =>
       _state = match data
       | let b: ByteSeq => rs.pump(this, b)
       | let bs: ByteSeqIter => rs.pump_many(this, bs)
@@ -123,11 +123,11 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
 
   fun ref acquire_backend() =>
     match _peer
-    | let p: _StableClientConnection =>
+    | let p: _BarnyardClientConnection =>
       // A transaction is in progress (the last ReadyForQuery wasn't idle),
       // so the lease is sticky: route the next statement to the held
       // backend. Behavior call to self so the reader state has settled to
-      // _StableServerAwaitBackend before it's handled.
+      // _BarnyardServerAwaitBackend before it's handled.
       on_backend_acquired(p)
     | None =>
       _pool.acquire(this)
@@ -136,13 +136,13 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
   fun ref release_backend() =>
     let old = _peer = None
     match old
-    | let p: _StableClientConnection =>
+    | let p: _BarnyardClientConnection =>
       // unpair() is the single release point: the backend returns itself to
       // the pool.
       p.unpair()
     end
 
-  be on_backend_acquired(backend: _StableClientConnection) =>
+  be on_backend_acquired(backend: _BarnyardClientConnection) =>
     if not _tcp_connection.is_open() then
       // The psql client went away while we were waiting on the pool. Our
       // reader state is unchanged, so without this guard we'd pair the
@@ -151,7 +151,7 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
       return
     end
     match _state
-    | let rs: _StableConnectionReaderState box =>
+    | let rs: _BarnyardConnectionReaderState box =>
       _peer = backend
       backend.pair(this)
       _state = rs.resume(this)
@@ -162,7 +162,7 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
   fun ref _on_received(data: Array[U8] iso) =>
     let bytes: Array[U8] val = consume data
     match _state
-    | let rs: _StableConnectionReaderState box => _state = rs.read(this, bytes)
+    | let rs: _BarnyardConnectionReaderState box => _state = rs.read(this, bytes)
     end
     _drain()
 
@@ -170,15 +170,15 @@ actor _StableServerConnection is (TCPConnectionActor & ServerLifecycleEventRecei
     var continue': Bool = true
     while continue' do
       match _state
-      | let ws: _StableConnectionWriterState box => _state = ws.write(this)
-      | let _: _StableConnectionReaderState box => continue' = false
+      | let ws: _BarnyardConnectionWriterState box => _state = ws.write(this)
+      | let _: _BarnyardConnectionReaderState box => continue' = false
       end
     end
 
   fun ref _on_closed() =>
     let old = _peer = None
     match old
-    | let p: _StableClientConnection =>
+    | let p: _BarnyardClientConnection =>
       // A lease held at close time means a batch, copy, or transaction was
       // in flight — the backend's session state is unknown, so destroy it
       // rather than return it dirty. It retires itself from the pool, which

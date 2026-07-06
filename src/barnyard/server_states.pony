@@ -2,45 +2,45 @@ use "collections"
 use "logger"
 use "lori"
 
-// States for the psql -> stable direction (we are impersonating a postgres
+// States for the psql -> barnyard direction (we are impersonating a postgres
 // backend to an incoming client).
 //
 // Stateless states are primitives — a state transition to one of them costs
 // no allocation. Only states carrying per-frame data are classes.
 
-primitive _StableServerAwaitLength is _StableConnectionReaderState
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+primitive _BarnyardServerAwaitLength is _BarnyardConnectionReaderState
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     let r = IterReader(data)
     try
       let len = r.u32_be()?.usize()
       if len < 8 then conn.hard_close(); return this end
       conn.log()(Fine) and conn.log().log("startup: header says " + len.string() + " byte payload")
       _Arm(conn, 4)
-      _StableServerAwaitDiscriminator(len)
+      _BarnyardServerAwaitDiscriminator(len)
     else
       conn.hard_close()
       this
     end
 
-class _StableServerAwaitDiscriminator is _StableConnectionReaderState
+class _BarnyardServerAwaitDiscriminator is _BarnyardConnectionReaderState
   let _len: USize
 
   new create(len: USize) =>
     _len = len
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     let r = IterReader(data)
     try
       let disc = r.u32_be()?
       if (disc == _Pg.ssl()) or (disc == _Pg.gss()) then
         conn.send("N")        // decline; 'S' if you support TLS
         _Arm(conn, 4)
-        _StableServerAwaitLength             // loop: real startup follows
+        _BarnyardServerAwaitLength             // loop: real startup follows
       elseif disc == _Pg.v3() then
         let rest = _len - 8                   // length + version already consumed
         if rest == 0 then conn.hard_close(); return this end
         _Arm(conn, rest)
-        _StableServerAwaitStartupParams
+        _BarnyardServerAwaitStartupParams
       else
         conn.hard_close(); this
       end
@@ -48,8 +48,8 @@ class _StableServerAwaitDiscriminator is _StableConnectionReaderState
       conn.hard_close(); this
     end
 
-primitive _StableServerAwaitStartupParams is _StableConnectionReaderState
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+primitive _BarnyardServerAwaitStartupParams is _BarnyardConnectionReaderState
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     let r = IterReader(data)
     let params = conn.params()
     try
@@ -60,36 +60,36 @@ primitive _StableServerAwaitStartupParams is _StableConnectionReaderState
       end
     end
     conn.log()(Fine) and conn.log().log("client startup params received")
-    _StableServerAuthChallenge
+    _BarnyardServerAuthChallenge
 
-primitive _StableServerAuthChallenge is _StableConnectionWriterState
-  fun write(conn: _StableConnection ref): _StableConnectionState box =>
+primitive _BarnyardServerAuthChallenge is _BarnyardConnectionWriterState
+  fun write(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     // Authentication OK, bullshit for now
     conn.send(_PgWire.authentication_ok())
-    _StableServerParameterStatus
+    _BarnyardServerParameterStatus
 
-primitive _StableServerParameterStatus is _StableConnectionWriterState
-  fun write(conn: _StableConnection ref): _StableConnectionState box =>
+primitive _BarnyardServerParameterStatus is _BarnyardConnectionWriterState
+  fun write(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     conn.send(_PgWire.parameter_status("server_version", "15.0"))
     conn.send(_PgWire.parameter_status("client_encoding", "UTF8"))
     conn.send(_PgWire.parameter_status("standard_conforming_strings", "on"))
     conn.send(_PgWire.parameter_status("DateStyle", "ISO, MDY"))
-    _StableServerBackendKeyData
+    _BarnyardServerBackendKeyData
 
-primitive _StableServerBackendKeyData is _StableConnectionWriterState
-  fun write(conn: _StableConnection ref): _StableConnectionState box =>
+primitive _BarnyardServerBackendKeyData is _BarnyardConnectionWriterState
+  fun write(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     conn.send(_PgWire.backend_key_data(123, 456))
-    _StableServerReadyIndicator
+    _BarnyardServerReadyIndicator
 
-primitive _StableServerReadyIndicator is _StableConnectionWriterState
-  fun write(conn: _StableConnection ref): _StableConnectionState box =>
+primitive _BarnyardServerReadyIndicator is _BarnyardConnectionWriterState
+  fun write(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     conn.send(_PgWire.ready_for_query('I'))
     conn.log()(Fine) and conn.log().log("client handshake complete")
     _Arm(conn, 5)
     conn.on_startup_complete()
-    _StableServerAwaitQueryHeader
+    _BarnyardServerAwaitQueryHeader
 
-primitive _StableServerBatch
+primitive _BarnyardServerBatch
   """
   Frontend frame classification for the batch-until-Sync lease model.
 
@@ -105,31 +105,31 @@ primitive _StableServerBatch
   fun ends_copy(msg_type: U8): Bool =>
     (msg_type == 'c') or (msg_type == 'f')   // CopyDone / CopyFail
 
-primitive _StableServerForward
+primitive _BarnyardServerForward
   """
   Route to the next state after a frontend frame header. The raw header
   bytes were staged by the caller exactly as they arrived — frames are
   never rebuilt — and the accumulated batch goes to the backend in a
   single writev at the batch boundary.
   """
-  fun apply(conn: _StableConnection ref, msg_type: U8, body_len: USize,
-    in_copy: Bool): _StableConnectionState box
+  fun apply(conn: _BarnyardConnection ref, msg_type: U8, body_len: USize,
+    in_copy: Bool): _BarnyardConnectionState box
   =>
     if body_len == 0 then
       next(conn, msg_type, in_copy)
     else
       _Arm(conn, body_len.min(_MaxArm()))
-      _StableServerForwardQueryBody(msg_type, body_len, in_copy)
+      _BarnyardServerForwardQueryBody(msg_type, body_len, in_copy)
     end
 
-  fun next(conn: _StableConnection ref, msg_type: U8, in_copy: Bool)
-    : _StableConnectionState box
+  fun next(conn: _BarnyardConnection ref, msg_type: U8, in_copy: Bool)
+    : _BarnyardConnectionState box
   =>
     let batch_over =
       if in_copy then
-        _StableServerBatch.ends_copy(msg_type)
+        _BarnyardServerBatch.ends_copy(msg_type)
       else
-        _StableServerBatch.ends_batch(msg_type)
+        _BarnyardServerBatch.ends_batch(msg_type)
       end
     if batch_over then
       _await_response(conn)
@@ -140,26 +140,26 @@ primitive _StableServerForward
         conn.flush_pipe()
       end
       if in_copy then
-        _StableServerCopyInForward.resume(conn)
+        _BarnyardServerCopyInForward.resume(conn)
       else
-        _StableServerAwaitQueryHeader.resume(conn)
+        _BarnyardServerAwaitQueryHeader.resume(conn)
       end
     end
 
-  fun _await_response(conn: _StableConnection ref): _StableConnectionState box =>
+  fun _await_response(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     // The batch reaches the backend as one writev; responses flow back
     // while the frontend stays muted.
     conn.flush_pipe()
     _ArmForMute(conn)
     conn.mute()
-    _StableServerAwaitBackendResponse
+    _BarnyardServerAwaitBackendResponse
 
-primitive _StableServerAwaitQueryHeader is _StableConnectionReaderState
-  fun resume(conn: _StableConnection ref): _StableConnectionState box =>
+primitive _BarnyardServerAwaitQueryHeader is _BarnyardConnectionReaderState
+  fun resume(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     _Arm(conn, 5)
     this
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     match _FrameHeader.parse(data)
     | (let msg_type: U8, let body_len: USize) =>
       if msg_type == 'X' then
@@ -170,25 +170,25 @@ primitive _StableServerAwaitQueryHeader is _StableConnectionReaderState
       if conn.has_backend() then
         // Mid-batch, or a sticky in-transaction lease: the backend is
         // already paired, no pool round trip needed.
-        _StableServerForward(conn, msg_type, body_len, false)
+        _BarnyardServerForward(conn, msg_type, body_len, false)
       else
         _ArmForMute(conn)
         conn.mute()
         conn.acquire_backend()
-        _StableServerAwaitBackend(msg_type, body_len)
+        _BarnyardServerAwaitBackend(msg_type, body_len)
       end
     | None =>
       conn.hard_close()
       this
     end
 
-  fun pump(conn: _StableConnection ref, chunks: ByteSeq val): _StableConnectionState box =>
+  fun pump(conn: _BarnyardConnection ref, chunks: ByteSeq val): _BarnyardConnectionState box =>
     // Between batches the backend can still speak: responses to Flush and
     // async messages (notices, parameter changes). Relay them.
     conn.send(chunks)
     this
 
-class _StableServerAwaitBackend is _StableConnectionReaderState
+class _BarnyardServerAwaitBackend is _BarnyardConnectionReaderState
   """
   Muted while the pool acquire for the batch's first frame is in flight.
   Carries that frame's header so forwarding can continue on resume.
@@ -200,15 +200,15 @@ class _StableServerAwaitBackend is _StableConnectionReaderState
     _msg_type = msg_type
     _body_len = body_len
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     // Unreachable while muted.
     this
 
-  fun resume(conn: _StableConnection ref): _StableConnectionState box =>
+  fun resume(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     conn.unmute()
-    _StableServerForward(conn, _msg_type, _body_len, false)
+    _BarnyardServerForward(conn, _msg_type, _body_len, false)
 
-class _StableServerForwardQueryBody is _StableConnectionReaderState
+class _BarnyardServerForwardQueryBody is _BarnyardConnectionReaderState
   """
   Stages a frontend frame body for the backend, in read-buffer-sized pieces
   when the body exceeds lori's buffer-until ceiling. Chunks are staged raw
@@ -224,33 +224,33 @@ class _StableServerForwardQueryBody is _StableConnectionReaderState
     _remaining = remaining
     _in_copy = in_copy
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     conn.stage(data)
     let remaining = _remaining - data.size()
     if remaining == 0 then
-      _StableServerForward.next(conn, _msg_type, _in_copy)
+      _BarnyardServerForward.next(conn, _msg_type, _in_copy)
     else
       _Arm(conn, remaining.min(_MaxArm()))
-      _StableServerForwardQueryBody(_msg_type, remaining, _in_copy)
+      _BarnyardServerForwardQueryBody(_msg_type, remaining, _in_copy)
     end
 
-  fun pump(conn: _StableConnection ref, chunks: ByteSeq val): _StableConnectionState box =>
+  fun pump(conn: _BarnyardConnection ref, chunks: ByteSeq val): _BarnyardConnectionState box =>
     // The backend can error mid-batch (e.g. a failed Parse) while a body is
     // still arriving. Relay it; the client sorts itself out at Sync.
     conn.send(chunks)
     this
 
-primitive _StableServerCopyInForward is _StableConnectionReaderState
+primitive _BarnyardServerCopyInForward is _BarnyardConnectionReaderState
   """
   COPY FROM STDIN: the backend sent CopyInResponse, so the frontend now
   streams CopyData frames. Forward them until CopyDone/CopyFail, then mute
   and await the backend's CommandComplete + ReadyForQuery.
   """
-  fun resume(conn: _StableConnection ref): _StableConnectionState box =>
+  fun resume(conn: _BarnyardConnection ref): _BarnyardConnectionState box =>
     _Arm(conn, 5)
     this
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     match _FrameHeader.parse(data)
     | (let msg_type: U8, let body_len: USize) =>
       if msg_type == 'X' then
@@ -258,33 +258,33 @@ primitive _StableServerCopyInForward is _StableConnectionReaderState
         return this
       end
       conn.stage(data)
-      _StableServerForward(conn, msg_type, body_len, true)
+      _BarnyardServerForward(conn, msg_type, body_len, true)
     | None =>
       conn.hard_close()
       this
     end
 
-  fun pump(conn: _StableConnection ref, chunks: ByteSeq val): _StableConnectionState box =>
+  fun pump(conn: _BarnyardConnection ref, chunks: ByteSeq val): _BarnyardConnectionState box =>
     // Errors and notices the backend raises mid-copy go to the client.
     conn.send(chunks)
     this
 
-primitive _StableServerAwaitBackendResponse is _StableConnectionReaderState
+primitive _BarnyardServerAwaitBackendResponse is _BarnyardConnectionReaderState
   """
   Fresh response-await: frame walking starts at a message boundary. The
   common case — a whole response in one chunk, ending in ReadyForQuery —
   enters and leaves this primitive without allocating a state. Only when a
   frame straddles the chunk boundary does the walk continue in a
-  _StableServerResponseCarry instance.
+  _BarnyardServerResponseCarry instance.
   """
-  fun pump(conn: _StableConnection ref, chunks: ByteSeq val): _StableConnectionState box =>
-    _StableServerResponseWalk(conn, chunks, 0, 0, 0, 0, false, false)
+  fun pump(conn: _BarnyardConnection ref, chunks: ByteSeq val): _BarnyardConnectionState box =>
+    _BarnyardServerResponseWalk(conn, chunks, 0, 0, 0, 0, false, false)
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     // Unreachable while muted.
     this
 
-class _StableServerResponseCarry is _StableConnectionReaderState
+class _BarnyardServerResponseCarry is _BarnyardConnectionReaderState
   """
   Mid-frame continuation of the response walk: header progress and
   remaining body bytes carried across a chunk boundary.
@@ -306,15 +306,15 @@ class _StableServerResponseCarry is _StableConnectionReaderState
     _is_rfq = is_rfq'
     _is_copy = is_copy'
 
-  fun pump(conn: _StableConnection ref, chunks: ByteSeq val): _StableConnectionState box =>
-    _StableServerResponseWalk(conn, chunks,
+  fun pump(conn: _BarnyardConnection ref, chunks: ByteSeq val): _BarnyardConnectionState box =>
+    _BarnyardServerResponseWalk(conn, chunks,
       _hdr_n, _hdr_type, _hdr_len, _skip, _is_rfq, _is_copy)
 
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box =>
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
     // Unreachable while muted.
     this
 
-primitive _StableServerResponseWalk
+primitive _BarnyardServerResponseWalk
   """
   Relays backend response bytes to the psql client while walking postgres
   message frames. Bodies are skipped by their declared length rather than
@@ -326,9 +326,9 @@ primitive _StableServerResponseWalk
   after ReadyForQuery closes the batch, or copy-in forwarding after a
   CopyInResponse.
   """
-  fun apply(conn: _StableConnection ref, chunks: ByteSeq val,
+  fun apply(conn: _BarnyardConnection ref, chunks: ByteSeq val,
     hdr_n': USize, hdr_type': U8, hdr_len': U32,
-    skip': USize, is_rfq': Bool, is_copy': Bool): _StableConnectionState box
+    skip': USize, is_rfq': Bool, is_copy': Bool): _BarnyardConnectionState box
   =>
     let data: Array[U8] val = match chunks
     | let s: String => s.array()
@@ -372,7 +372,7 @@ primitive _StableServerResponseWalk
               or ((hdr_type == 'Z') and (hdr_len != 5)) // RFQ: 1 status byte
             if malformed then
               conn.hard_close()
-              return _StableServerAwaitBackendResponse
+              return _BarnyardServerAwaitBackendResponse
             end
             skip = (hdr_len - 4).usize()
             is_rfq = hdr_type == 'Z'
@@ -388,13 +388,13 @@ primitive _StableServerResponseWalk
     conn.send(chunks)
     if (hdr_n == 0) and (skip == 0) then
       // Chunk ended exactly on a frame boundary: nothing to carry.
-      _StableServerAwaitBackendResponse
+      _BarnyardServerAwaitBackendResponse
     else
-      _StableServerResponseCarry(hdr_n, hdr_type, hdr_len, skip, is_rfq, is_copy)
+      _BarnyardServerResponseCarry(hdr_n, hdr_type, hdr_len, skip, is_rfq, is_copy)
     end
 
-  fun _finish_batch(conn: _StableConnection ref, chunks: ByteSeq val,
-    status: U8): _StableConnectionState box
+  fun _finish_batch(conn: _BarnyardConnection ref, chunks: ByteSeq val,
+    status: U8): _BarnyardConnectionState box
   =>
     """
     ReadyForQuery's status byte closes the batch. Idle ('I') releases the
@@ -406,10 +406,10 @@ primitive _StableServerResponseWalk
       conn.release_backend()
     end
     conn.unmute()
-    _StableServerAwaitQueryHeader.resume(conn)
+    _BarnyardServerAwaitQueryHeader.resume(conn)
 
-  fun _begin_copy_in(conn: _StableConnection ref, chunks: ByteSeq val)
-    : _StableConnectionState box
+  fun _begin_copy_in(conn: _BarnyardConnection ref, chunks: ByteSeq val)
+    : _BarnyardConnectionState box
   =>
     """
     CopyInResponse relayed in full: the frontend now streams the copy
@@ -417,4 +417,4 @@ primitive _StableServerResponseWalk
     """
     conn.send(chunks)
     conn.unmute()
-    _StableServerCopyInForward.resume(conn)
+    _BarnyardServerCopyInForward.resume(conn)

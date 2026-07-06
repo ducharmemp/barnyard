@@ -1,8 +1,8 @@
-use "stable"
+use "barnyard"
 
 actor Main
   new create(env: Env) =>
-    Stable(env)
+    Barnyard(env)
 
   fun @runtime_override_defaults(rto: RuntimeOptions) =>
     // An I/O-bound proxy wants few scheduler threads: with the runtime

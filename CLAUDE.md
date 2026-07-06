@@ -1,4 +1,4 @@
-# Stable
+# Barnyard
 
 A Postgres-protocol proxy written in Pony. Acts as a server to `psql`-style
 clients and as a client to a real Postgres backend.

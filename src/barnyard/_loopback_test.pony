@@ -12,14 +12,14 @@ class iso _LoopbackHandshake is UnitTest
     let port: String = "17669"
 
 
-    //let pool = _StableConnectionPooler(
+    //let pool = _BarnyardConnectionPooler(
      // TCPConnectAuth(auth), host, port, "test", "test", 1, h.env.out)
 
-    let server_info = _StableServerInfo(host, port)
+    let server_info = _BarnyardServerInfo(host, port)
 
-    // StableServer(TCPListenAuth(auth), server_info, _LoopbackTestNotifier(h), h.env.out)
+    // BarnyardServer(TCPListenAuth(auth), server_info, _LoopbackTestNotifier(h), h.env.out)
 
-    //_StableClientConnection(
+    //_BarnyardClientConnection(
     // TCPConnectAuth(auth), pool, host, port,
     // "test", "test", "test", "", h.env.out)
 

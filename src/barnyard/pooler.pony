@@ -4,18 +4,18 @@ use "lori"
 use "itertools"
 
 interface _PoolWaitable
-  be on_backend_acquired(backend: _StableClientConnection)
+  be on_backend_acquired(backend: _BarnyardClientConnection)
 
-actor _StableConnectionPooler
-  embed _idle: Array[_StableClientConnection tag] = _idle.create()
+actor _BarnyardConnectionPooler
+  embed _idle: Array[_BarnyardClientConnection tag] = _idle.create()
   embed _waiters: List[_PoolWaitable tag] = _waiters.create()
   var _auth: TCPConnectAuth
-  var _backend_info: _StableBackendInfo val
+  var _backend_info: _BarnyardBackendInfo val
   var _pool_size: USize
   var _current_pool_size: USize = 0
   let _log: Logger[String]
 
-  new create(auth: TCPConnectAuth, backend_info: _StableBackendInfo val, pool_size: USize, log: Logger[String]) =>
+  new create(auth: TCPConnectAuth, backend_info: _BarnyardBackendInfo val, pool_size: USize, log: Logger[String]) =>
     _auth = auth
     _backend_info = backend_info
     _pool_size = pool_size
@@ -38,7 +38,7 @@ actor _StableConnectionPooler
       end
     end
 
-  be release(backend: _StableClientConnection tag) =>
+  be release(backend: _BarnyardClientConnection tag) =>
     try
       let waiter = _waiters.shift()?
       waiter.on_backend_acquired(backend)
@@ -46,7 +46,7 @@ actor _StableConnectionPooler
       _idle.push(backend)
     end
 
-  be retire(backend: _StableClientConnection tag) =>
+  be retire(backend: _BarnyardClientConnection tag) =>
     """
     A backend connection died. Drop it from pool accounting so the pool
     doesn't drain permanently. Respawn only when clients are waiting —
@@ -60,4 +60,4 @@ actor _StableConnectionPooler
 
   fun ref _spawn_connection() =>
     _current_pool_size = _current_pool_size + 1
-    _StableClientConnection(_auth, _backend_info, this, _log).start()
+    _BarnyardClientConnection(_auth, _backend_info, this, _log).start()

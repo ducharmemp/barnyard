@@ -1,5 +1,5 @@
 {
-  description = "Stable";
+  description = "Barnyard";
 
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";

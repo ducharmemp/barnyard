@@ -2,7 +2,7 @@ use "collections"
 use "logger"
 use "lori"
 
-interface _StableConnection
+interface _BarnyardConnection
   fun ref log(): Logger[String]
   fun ref send(payload: (ByteSeq | ByteSeqIter))
   fun ref buffer_until(qty: (BufferSize | Streaming))
@@ -20,31 +20,31 @@ interface _StableConnection
   fun ref flush_pipe()
   be pipe_receive(data: (ByteSeq | ByteSeqIter))
 
-interface _StableConnectionReaderState
-  fun read(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box
-  fun pump(conn: _StableConnection ref, data: ByteSeq val): _StableConnectionState box => this
-  fun pump_many(conn: _StableConnection ref, data: ByteSeqIter): _StableConnectionState box =>
+interface _BarnyardConnectionReaderState
+  fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box
+  fun pump(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box => this
+  fun pump_many(conn: _BarnyardConnection ref, data: ByteSeqIter): _BarnyardConnectionState box =>
     """
     Pump a multi-buffer message through the state machine one buffer at a
     time. States that just relay (e.g. the piped backend) override this to
     forward the whole sequence in a single writev.
     """
-    var state: _StableConnectionState box = this
+    var state: _BarnyardConnectionState box = this
     for b in data.values() do
       match state
-      | let rs: _StableConnectionReaderState box => state = rs.pump(conn, b)
+      | let rs: _BarnyardConnectionReaderState box => state = rs.pump(conn, b)
       end
     end
     state
-  fun resume(conn: _StableConnection ref): _StableConnectionState box => this
+  fun resume(conn: _BarnyardConnection ref): _BarnyardConnectionState box => this
 
-interface _StableConnectionWriterState
-  fun write(conn: _StableConnection ref): _StableConnectionState box
+interface _BarnyardConnectionWriterState
+  fun write(conn: _BarnyardConnection ref): _BarnyardConnectionState box
 
-type _StableConnectionState is (_StableConnectionReaderState | _StableConnectionWriterState)
+type _BarnyardConnectionState is (_BarnyardConnectionReaderState | _BarnyardConnectionWriterState)
 
 primitive _Arm
-  fun apply(conn: _StableConnection ref, qty: USize) =>
+  fun apply(conn: _BarnyardConnection ref, qty: USize) =>
     match MakeBufferSize(qty)
     | let b: BufferSize => conn.buffer_until(b)
     end
@@ -86,10 +86,10 @@ primitive _ArmForMute
   this never affects delivery. (Root cause is a lori issue: it should
   re-check mute, and never receive() into zero free space.)
   """
-  fun apply(conn: _StableConnection ref) =>
+  fun apply(conn: _BarnyardConnection ref) =>
     _Arm(conn, _MaxArm())
 
-class _StableBackendInfo
+class _BarnyardBackendInfo
   let host: String
   let port: String
   let username: String
@@ -103,7 +103,7 @@ class _StableBackendInfo
     password = password'
     database = database'
 
-class _StableServerInfo
+class _BarnyardServerInfo
   let host: String
   let port: String
 

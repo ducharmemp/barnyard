@@ -2,7 +2,7 @@ use "collections"
 use "logger"
 use "lori"
 
-actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventReceiver & _StableConnection)
+actor _BarnyardClientConnection is (TCPConnectionActor & ClientLifecycleEventReceiver & _BarnyardConnection)
   """
   A pooled connection to the real Postgres backend.
 
@@ -14,18 +14,18 @@ actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventRecei
   """
   var _tcp_connection: TCPConnection = TCPConnection.none()
   let _auth: TCPConnectAuth
-  let _backend_info: _StableBackendInfo val
+  let _backend_info: _BarnyardBackendInfo val
   let _log: Logger[String]
-  var _state: _StableConnectionState box
-  let _pool: _StableConnectionPooler
+  var _state: _BarnyardConnectionState box
+  let _pool: _BarnyardConnectionPooler
   var _retired: Bool = false
   let _params: Map[String, String] = _params.create()
-  var _peer: (_StableServerConnection | None) = None
+  var _peer: (_BarnyardServerConnection | None) = None
 
-  new create(auth: TCPConnectAuth, backend_info: _StableBackendInfo val, pool: _StableConnectionPooler, log': Logger[String]) =>
+  new create(auth: TCPConnectAuth, backend_info: _BarnyardBackendInfo val, pool: _BarnyardConnectionPooler, log': Logger[String]) =>
     _log = log'
     _backend_info = backend_info
-    _state = _StableClientStartup(_backend_info)
+    _state = _BarnyardClientStartup(_backend_info)
     _pool = pool
     _auth = auth
 
@@ -65,7 +65,7 @@ actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventRecei
 
   fun ref pipe_send(data: (ByteSeq | ByteSeqIter)) =>
     match _peer
-    | let p: _StableServerConnection => p.pipe_receive(data)
+    | let p: _BarnyardServerConnection => p.pipe_receive(data)
     end
 
   // Staging is a frontend-side concern; the backend relays immediately.
@@ -74,20 +74,20 @@ actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventRecei
 
   be pipe_receive(data: (ByteSeq | ByteSeqIter)) =>
     match _state
-    | let rs: _StableConnectionReaderState box =>
+    | let rs: _BarnyardConnectionReaderState box =>
       _state = match data
       | let b: ByteSeq => rs.pump(this, b)
       | let bs: ByteSeqIter => rs.pump_many(this, bs)
       end
     end
 
-  be pair(peer: _StableServerConnection) =>
+  be pair(peer: _BarnyardServerConnection) =>
     _peer = peer
-    _state = _StableClientPiped.resume(this)
+    _state = _BarnyardClientPiped.resume(this)
 
   be unpair() =>
     _peer = None
-    _state = _StableClientAwaitQueryHeader.resume(this)
+    _state = _BarnyardClientAwaitQueryHeader.resume(this)
     if not _retired then
       _pool.release(this)
     end
@@ -103,7 +103,7 @@ actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventRecei
   fun ref _on_received(data: Array[U8] iso) =>
     let bytes: Array[U8] val = consume data
     match _state
-    | let rs: _StableConnectionReaderState box => _state = rs.read(this, bytes)
+    | let rs: _BarnyardConnectionReaderState box => _state = rs.read(this, bytes)
     end
     _drain()
 
@@ -111,8 +111,8 @@ actor _StableClientConnection is (TCPConnectionActor & ClientLifecycleEventRecei
     var continue': Bool = true
     while continue' do
       match _state
-      | let ws: _StableConnectionWriterState box => _state = ws.write(this)
-      | let _: _StableConnectionReaderState box => continue' = false
+      | let ws: _BarnyardConnectionWriterState box => _state = ws.write(this)
+      | let _: _BarnyardConnectionReaderState box => continue' = false
       end
     end
 
