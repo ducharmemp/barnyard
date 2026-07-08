@@ -1,3 +1,4 @@
+use "buffered"
 use "collections"
 use "logger"
 use "lori"
@@ -10,7 +11,8 @@ use "lori"
 
 primitive _BarnyardServerAwaitLength is _BarnyardConnectionReaderState
   fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
-    let r = IterReader(data)
+    let r = Reader
+    r.append(data)
     try
       let len = r.u32_be()?.usize()
       if len < 8 then conn.hard_close(); return this end
@@ -29,7 +31,8 @@ class _BarnyardServerAwaitDiscriminator is _BarnyardConnectionReaderState
     _len = len
 
   fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
-    let r = IterReader(data)
+    let r = Reader
+    r.append(data)
     try
       let disc = r.u32_be()?
       if (disc == _Pg.ssl()) or (disc == _Pg.gss()) then
@@ -50,7 +53,8 @@ class _BarnyardServerAwaitDiscriminator is _BarnyardConnectionReaderState
 
 primitive _BarnyardServerAwaitStartupParams is _BarnyardConnectionReaderState
   fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
-    let r = IterReader(data)
+    let r = Reader
+    r.append(data)
     let params = conn.params()
     try
       while true do

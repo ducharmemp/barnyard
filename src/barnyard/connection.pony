@@ -1,3 +1,4 @@
+use "buffered"
 use "collections"
 use "logger"
 use "lori"
@@ -65,7 +66,8 @@ primitive _FrameHeader
   """
   fun parse(data: ByteSeq val): ((U8, USize) | None) =>
     try
-      let r = IterReader(data)
+      let r = Reader
+      r.append(data)
       let msg_type = r.u8()?
       let len = r.u32_be()?.usize()
       if len < 4 then return None end

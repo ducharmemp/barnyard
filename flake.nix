@@ -24,8 +24,10 @@
         let
           # Needed everywhere
           basePackages = with pkgs; [
-            ponyc
+            (ponyc.overrideAttrs (old: { allowSubstitutes = false; }))
             pony-corral
+            llvm
+            glibc
             just
             openssl_3
           ];
@@ -34,6 +36,8 @@
             podman
             podman-compose
             postgresql
+            pgbouncer
+            pgcat
           ];
         in
         {
@@ -42,7 +46,7 @@
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath basePackages;
           };
 
-          devShells.default = pkgs.mkShell {
+          devShells.default = (pkgs.mkShell.override { stdenv = pkgs.llvmPackages.libcxxStdenv; }) {
             buildInputs = basePackages ++ developerPackages;
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath basePackages;
           };

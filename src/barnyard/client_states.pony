@@ -1,3 +1,4 @@
+use "buffered"
 use "collections"
 use "logger"
 use "lori"
@@ -45,7 +46,8 @@ class _BarnyardClientAuthBody is _BarnyardConnectionReaderState
     _backend_info = backend_info
 
   fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
-    let r = IterReader(data)
+    let r = Reader
+    r.append(data)
     try
       let code = r.u32_be()?
       match code
@@ -94,7 +96,8 @@ class _BarnyardClientEpilogueBody is _BarnyardConnectionReaderState
     _msg_type = msg_type
 
   fun read(conn: _BarnyardConnection ref, data: ByteSeq val): _BarnyardConnectionState box =>
-    let r = IterReader(data)
+    let r = Reader
+    r.append(data)
     match _msg_type
     | 'S' =>                          // ParameterStatus: key\0 value\0
       try
