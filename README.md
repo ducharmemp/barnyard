@@ -39,3 +39,6 @@ This is where a lot of LLM-looking code also came from. Once I got the initial s
 
 1. My inexperience with Pony caused me to have to guess at performance sinks (the LLM was useless here). Most of the time it did come down to allocations which were relatively easy to pin but at times it was due to runtime tuning or defaults
 2. Cap system syntax, although I'm guessing this is mainly due to it being new to my eyes. Something about `recover iso Foo() end` looks odd
+
+## How does this perform?
+See bench/results.md for current running results on my laptop.
