@@ -4,6 +4,7 @@
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    ponies-nix.url = "github:ducharmemp/ponies-nix";
   };
 
   outputs =
@@ -20,12 +21,17 @@
       ];
 
       perSystem =
-        { config, pkgs, ... }:
+        { config, pkgs, inputs', ... }:
         let
+          ponyPackages = with inputs'.ponies-nix.packages; [
+            pony-lsp
+            pony-lint
+            ponyc
+            corral
+            pony-doc
+          ];
           # Needed everywhere
           basePackages = with pkgs; [
-            (ponyc.overrideAttrs (old: { allowSubstitutes = false; }))
-            pony-corral
             llvm
             glibc
             just
@@ -37,18 +43,19 @@
             podman-compose
             postgresql
             pgbouncer
-            pgcat
+            pgdog
+            perf
+            inferno
+            bpftrace
           ];
         in
         {
           devShells.ci = pkgs.mkShell {
-            buildInputs = basePackages;
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath basePackages;
+            buildInputs = ponyPackages ++ basePackages;
           };
 
           devShells.default = (pkgs.mkShell.override { stdenv = pkgs.llvmPackages.libcxxStdenv; }) {
-            buildInputs = basePackages ++ developerPackages;
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath basePackages;
+            buildInputs = ponyPackages ++ basePackages ++ developerPackages;
           };
 
           formatter = pkgs.nixfmt-rfc-style;

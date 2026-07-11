@@ -2,8 +2,12 @@
   "packages": [],
   "deps": [
     {
-      "locator": "github.com/ponylang/postgres.git",
-      "version": "0.6.1"
+      "locator": "github.com/ponylang/lori.git",
+      "version": "5814e6c122375e525a87d54545542fb028601983"
+    },
+    {
+      "locator": "github.com/ponylang/logger.git",
+      "version": "1.0.1"
     }
   ],
   "info": {

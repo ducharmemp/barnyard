@@ -1,11 +1,11 @@
 use "buffered"
 
-primitive _Pg
+primitive Pg
   fun ssl(): U32 => 80877103
   fun gss(): U32 => 80877104
   fun v3():  U32 => 196608
 
-primitive _PgWire
+primitive PgWire
   fun message(type_byte: U8, payload: Writer iso): Array[ByteSeq] val =>
     let payload_len = payload.size().u32()
     let bytes = payload.done()
@@ -64,7 +64,7 @@ primitive _PgWire
     let payload = Writer
     // 4 (version) + "user"(4) + \0 + user + \0 + "database"(8) + \0 + db + \0 + \0
     payload.reserve_current(21 + user.size() + database.size())
-    payload.u32_be(_Pg.v3())
+    payload.u32_be(Pg.v3())
     payload.write("user")
     payload.u8(0)
     payload.write(user)
